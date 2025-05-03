@@ -35,9 +35,12 @@ jobs:
 
       - name: Initialize DB from dump
         run: |
-          # читаем дамп на хосте и передаём его в контейнер postgres-ci
-          cat kubsu/dump.sql | docker exec -i postgres-ci \
-            psql -U kubsu -d kubsu
+          docker run --rm \
+            --network host \
+            -v $PWD/kubsu/dump.sql:/dump.sql \
+            -e PGPASSWORD=kubsu \
+            postgres:14 \
+            psql -h localhost -U kubsu -d kubsu -f /dump.sql
 
       - name: Build Docker image
         run: docker build -t myapp:test .
