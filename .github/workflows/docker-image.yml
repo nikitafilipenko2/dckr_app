@@ -99,9 +99,8 @@ jobs:
           SSH_PORT:   ${{ secrets.SSH_PORT }}
           APP_PORT:   8040
         run: |
-          ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
-            echo "${{ secrets.GITHUB_TOKEN }}" \
-              | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST <<EOF
+            echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
             podman pull $GHCR_IMAGE
             podman stop myapp  || true
             podman rm   myapp  || true
@@ -112,3 +111,4 @@ jobs:
               $GHCR_IMAGE \
               uvicorn src.main:app --host 0.0.0.0 --port $APP_PORT
           EOF
+
