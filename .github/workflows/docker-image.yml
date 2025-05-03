@@ -17,4 +17,5 @@ jobs:
     - name: Build the Docker image
       run: |
         tree 
-        docker build docker/. --file Dockerfile --tag my-image-name:$(date +%s)
+        cd docker
+        docker build . --file Dockerfile --tag my-image-name:$(date +%s)
