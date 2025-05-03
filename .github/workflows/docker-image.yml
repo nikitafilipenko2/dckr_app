@@ -35,12 +35,13 @@ jobs:
 
       - name: Initialize DB from dump
         run: |
-          docker run --rm \
-            --network host \
-            -v "${{ github.workspace }}/kubsu/dump.sql:/dump.sql:ro" \
-            -e PGPASSWORD=kubsu \
-            postgres:14 \
-            sh -c "psql -h localhost -U kubsu -d kubsu -f /dump.sql"
+          cat "${{ github.workspace }}/kubsu/dump.sql" \
+            | docker run --rm -i \
+                --network host \
+                -e PGPASSWORD=kubsu \
+                postgres:14 \
+                psql -h localhost -U kubsu -d kubsu
+
 
       - name: Build Docker image
         run: docker build -t myapp:test .
