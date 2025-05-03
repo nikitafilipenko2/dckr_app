@@ -41,20 +41,13 @@ jobs:
                 postgres:14 \
                 psql -h localhost -U kubsu -d kubsu
 
-      - name: Build Docker image
-        run: |
-          docker build \
-            --file docker/Dockerfile \
-            --tag myapp:test \
-            docker/
-
       - name: Build test image (builder stage)
         run: |
           docker build \
             --target builder \
-            --file docker/Dockerfile \
+            --file Dockerfile \
             --tag myapp:test \
-            docker/
+            .
 
       - name: Run tests
         run: |
@@ -72,25 +65,48 @@ jobs:
       - name: Build prod image
         run: |
           docker build \
-            --file docker/Dockerfile \
+            --file Dockerfile \
             --tag myapp:latest \
-            docker/
+            .
 
-      - name: Set up SSH
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push to GHCR
+        run: |
+          GHCR_IMAGE=ghcr.io/${{ github.repository_owner }}/myapp:latest
+          docker tag myapp:latest $GHCR_IMAGE
+          docker push $GHCR_IMAGE
+
+      - name: Set up SSH agent
         uses: webfactory/ssh-agent@v0.5.4
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Deploy to remote server
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/myapp:latest
+          SSH_USER:   ${{ secrets.SSH_USER }}
+          SSH_HOST:   ${{ secrets.SSH_HOST }}
+          SSH_PORT:   ${{ secrets.SSH_PORT }}
+          APP_PORT:   8040
         run: |
-          docker save myapp:latest | \
-            ssh -o StrictHostKeyChecking=no \
-                -p ${{ secrets.SSH_PORT }} \
-                ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "podman load && \
-             podman tag myapp:latest myapp:latest && \
-             podman run -d \
-               --name myapp \
-               --network host \
-               myapp:latest \
-               uvicorn src.main:app --host 0.0.0.0 --port 8040"
+          ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
+            # логинимся в GHCR на сервере
+            echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+            # тянем свежий образ
+            podman pull $GHCR_IMAGE
+            # перезапускаем контейнер
+            podman stop myapp  || true
+            podman rm   myapp  || true
+            podman run -d \
+              --name myapp \
+              --network host \
+              -e PORT=$APP_PORT \
+              $GHCR_IMAGE \
+              uvicorn src.main:app --host 0.0.0.0 --port $APP_PORT
+          EOF
