@@ -7,6 +7,7 @@ on:
 jobs:
   build-test-deploy:
     runs-on: self-hosted
+
     services:
       postgres:
         image: postgres:14
@@ -28,10 +29,8 @@ jobs:
 
       - name: Wait for Postgres
         run: |
-          until pg_isready -h localhost -p 5432 -U kubsu; do
-            echo "Waiting for Postgres..."
-            sleep 2
-          done
+          echo "Sleeping 20s for Postgres to initialize..."
+          sleep 20
 
       - name: Initialize DB from dump
         run: |
@@ -42,24 +41,40 @@ jobs:
                 postgres:14 \
                 psql -h localhost -U kubsu -d kubsu
 
-
       - name: Build Docker image
-        run: docker build -t myapp:test .
+        run: |
+          docker build \
+            --file docker/Dockerfile \
+            --tag myapp:test \
+            docker/
 
-      - name: Build test image
-        run: docker build --target builder -t myapp:test .
+      - name: Build test image (builder stage)
+        run: |
+          docker build \
+            --target builder \
+            --file docker/Dockerfile \
+            --tag myapp:test \
+            docker/
 
       - name: Run tests
         run: |
           docker run --rm \
             --network host \
+            -e DB_HOST=localhost \
+            -e DB_PORT=5432 \
+            -e DB_USER=kubsu \
+            -e DB_PASS=kubsu \
+            -e DB_NAME=kubsu \
             -e PYTHONPATH=/app \
             myapp:test \
             pytest tests
 
-
       - name: Build prod image
-        run: docker build -t myapp:latest .
+        run: |
+          docker build \
+            --file docker/Dockerfile \
+            --tag myapp:latest \
+            docker/
 
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.5.4
