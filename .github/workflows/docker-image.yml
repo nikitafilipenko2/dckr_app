@@ -37,7 +37,8 @@ jobs:
       # 4. Инициализируем дамп через docker exec
       - name: Initialize DB from dump
         run: |
-          docker exec -i postgres-ci psql -U kubsu -d kubsu < kubsu/dump.sql
+          cat kubsu/dump.sql | docker exec -i postgres-ci \
+            psql -U kubsu -d kubsu
 
       # 5. Собираем тестовый образ (builder stage)
       - name: Build test image (builder stage)
