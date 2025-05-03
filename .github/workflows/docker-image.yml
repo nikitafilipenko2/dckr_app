@@ -8,38 +8,38 @@ jobs:
   build-test-deploy:
     runs-on: self-hosted
 
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_DB: kubsu
-          POSTGRES_USER: kubsu
-          POSTGRES_PASSWORD: kubsu
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U kubsu"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Wait for Postgres to start
+      # 1. Создаём собственную сеть для CI
+      - name: Create Docker network
         run: |
-          echo "Sleeping 20s for Postgres to initialize..."
+          docker network create ci-net || true
+
+      # 2. Запускаем Postgres-контейнер
+      - name: Start Postgres
+        run: |
+          docker run -d \
+            --network ci-net \
+            --name postgres-ci \
+            -e POSTGRES_DB=kubsu \
+            -e POSTGRES_USER=kubsu \
+            -e POSTGRES_PASSWORD=kubsu \
+            postgres:14
+
+      # 3. Ждём, пока БД поднимется
+      - name: Wait for Postgres to initialize
+        run: |
+          echo "Sleeping 20s for Postgres..."
           sleep 20
 
+      # 4. Инициализируем дамп через docker exec
       - name: Initialize DB from dump
         run: |
-          docker run --rm \
-            --network host \
-            -v $PWD/kubsu/dump.sql:/dump.sql \
-            postgres:14 \
-            psql -h localhost -U kubsu -d kubsu -f /dump.sql
+          docker exec -i postgres-ci psql -U kubsu -d kubsu < kubsu/dump.sql
 
+      # 5. Собираем тестовый образ (builder stage)
       - name: Build test image (builder stage)
         run: |
           docker build \
@@ -47,26 +47,41 @@ jobs:
             --file Dockerfile \
             --tag myapp:test .
 
+      # 6. Прогоняем тесты в контейнере, подключенном к нашей сети
       - name: Run tests inside container
         run: |
           docker run --rm \
-            --network host \
+            --network ci-net \
+            -e DB_HOST=postgres-ci \
+            -e DB_PORT=5432 \
+            -e DB_USER=kubsu \
+            -e DB_PASS=kubsu \
+            -e DB_NAME=kubsu \
             -e PYTHONPATH=/app \
             myapp:test \
             pytest tests
 
+      # 7. Останавливаем и удаляем тестовый Postgres (по желанию)
+      - name: Teardown Postgres
+        if: always()
+        run: |
+          docker stop postgres-ci || true
+          docker rm   postgres-ci || true
+
+      # 8. Собираем финальный образ
       - name: Build prod image
         run: |
           docker build \
             --file Dockerfile \
             --tag myapp:latest .
 
+      # 9. Логин и пуш в GHCR
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_SECRET }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tag and push to GHCR
         run: |
@@ -74,11 +89,13 @@ jobs:
           docker tag myapp:latest $GHCR_IMAGE
           docker push $GHCR_IMAGE
 
+      # 10. SSH‑доступ к серверу
       - name: Set up SSH agent
         uses: webfactory/ssh-agent@v0.5.4
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      # 11. Деплой на сервер: логин в GHCR и перезапуск контейнера
       - name: Deploy to remote server
         env:
           GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/myapp:latest
@@ -88,10 +105,11 @@ jobs:
           APP_PORT:   8040
         run: |
           ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
-            echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GITHUB_TOKEN }}" \
+              | podman login ghcr.io -u ${{ github.actor }} --password-stdin
             podman pull $GHCR_IMAGE
-            podman stop myapp || true
-            podman rm   myapp || true
+            podman stop myapp  || true
+            podman rm   myapp  || true
             podman run -d \
               --name myapp \
               --network host \
