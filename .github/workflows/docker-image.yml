@@ -27,13 +27,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Wait for Postgres
+      - name: Wait for Postgres to start
         run: |
           echo "Sleeping 20s for Postgres to initialize..."
           sleep 20
 
       - name: Initialize DB from dump
-        run: psql postgresql://kubsu:kubsu@localhost:5432/kubsu -f kubsu/dump.sql
+        run: |
+          docker run --rm \
+            --network host \
+            -v $PWD/kubsu/dump.sql:/dump.sql \
+            postgres:14 \
+            psql -h localhost -U kubsu -d kubsu -f /dump.sql
 
       - name: Build test image (builder stage)
         run: |
