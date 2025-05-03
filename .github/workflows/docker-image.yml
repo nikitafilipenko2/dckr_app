@@ -29,10 +29,8 @@ jobs:
 
       - name: Wait for Postgres
         run: |
-          until pg_isready -h localhost -p 5432 -U kubsu; do
-            echo "Waiting for Postgres..."
-            sleep 2
-          done
+          echo "Sleeping 20s for Postgres to initialize..."
+          sleep 20
 
       - name: Initialize DB from dump
         run: psql postgresql://kubsu:kubsu@localhost:5432/kubsu -f kubsu/dump.sql
