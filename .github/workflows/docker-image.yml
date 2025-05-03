@@ -12,12 +12,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 1. Создаём собственную сеть для CI
+      # 1. Собираем сеть и Postgres
       - name: Create Docker network
-        run: |
-          docker network create ci-net || true
+        run: docker network create ci-net || true
 
-      # 2. Запускаем Postgres-контейнер
       - name: Start Postgres
         run: |
           docker run -d \
@@ -28,27 +26,25 @@ jobs:
             -e POSTGRES_PASSWORD=kubsu \
             postgres:14
 
-      # 3. Ждём, пока БД поднимется
       - name: Wait for Postgres to initialize
         run: |
           echo "Sleeping 20s for Postgres..."
           sleep 20
 
-      # 4. Инициализируем дамп через docker exec
       - name: Initialize DB from dump
         run: |
           cat kubsu/dump.sql | docker exec -i postgres-ci \
             psql -U kubsu -d kubsu
 
-      # 5. Собираем тестовый образ (builder stage)
+      # 2. Build & test
       - name: Build test image (builder stage)
         run: |
           docker build \
             --target builder \
-            --file Dockerfile \
-            --tag myapp:test .
+            --file docker/Dockerfile \
+            --tag myapp:test \
+            docker/
 
-      # 6. Прогоняем тесты в контейнере, подключенном к нашей сети
       - name: Run tests inside container
         run: |
           docker run --rm \
@@ -62,21 +58,21 @@ jobs:
             myapp:test \
             pytest tests
 
-      # 7. Останавливаем и удаляем тестовый Postgres (по желанию)
       - name: Teardown Postgres
         if: always()
         run: |
           docker stop postgres-ci || true
           docker rm   postgres-ci || true
 
-      # 8. Собираем финальный образ
+      # 3. Build prod image
       - name: Build prod image
         run: |
           docker build \
-            --file Dockerfile \
-            --tag myapp:latest .
+            --file docker/Dockerfile \
+            --tag myapp:latest \
+            docker/
 
-      # 9. Логин и пуш в GHCR
+      # 4. Push to GHCR
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
         with:
@@ -90,13 +86,12 @@ jobs:
           docker tag myapp:latest $GHCR_IMAGE
           docker push $GHCR_IMAGE
 
-      # 10. SSH‑доступ к серверу
+      # 5. Deploy via SSH
       - name: Set up SSH agent
         uses: webfactory/ssh-agent@v0.5.4
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # 11. Деплой на сервер: логин в GHCR и перезапуск контейнера
       - name: Deploy to remote server
         env:
           GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/myapp:latest
