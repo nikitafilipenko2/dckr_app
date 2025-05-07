@@ -1,4 +1,4 @@
-# Stage 1: Build
+# Stage 1
 FROM python:3.11-slim as builder
 
 WORKDIR /app
@@ -9,7 +9,7 @@ RUN pip install .[test]
 
 COPY . .
 
-# Stage 2: Production image
+# Stage 2
 FROM python:3.11-slim
 
 RUN useradd -m appuser
