@@ -11,7 +11,6 @@ RUN pip install .[test]
 
 COPY . .
 
-# Stage 2
 FROM python:3.11-slim
 
 RUN useradd -m appuser
