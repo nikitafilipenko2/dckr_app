@@ -1,6 +1,1 @@
-dsPopfg
-asd
-zxc
-dfgfdbcdf
-fg  
-dffgdf
+CI/CD пайплайн для автоматизации деплоя приложения
